@@ -1,0 +1,13 @@
+[package]
+name = "audio_station"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = "0.15"
+clap = { version = "4.4", features = ["derive"] }
+bytemuck = "1.14"
+if-addrs = "0.13"
+ringbuf = "0.4"
+opus2 = { version = "0.3.3" }
+dashmap = "5.5"
