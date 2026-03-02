@@ -3,6 +3,8 @@
 use clap::{Parser, Subcommand};
 use std::io;
 
+use crate::shared::DeviceType;
+
 mod client;
 mod server;
 mod shared;
@@ -17,7 +19,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Client,
+    Client {
+        #[arg(long = "type", value_enum, default_value_t = DeviceType::Output)]
+        r#type: DeviceType,
+    },
     Server,
 }
 
@@ -25,7 +30,7 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Client => client::run(),
+        Commands::Client { r#type } => client::run(r#type),
         Commands::Server => server::run(),
     }
 }

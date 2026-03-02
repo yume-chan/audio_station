@@ -1,19 +1,19 @@
-use cpal::{
-    default_host,
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-    SampleRate, StreamConfig,
+use std::{
+    cell::RefCell,
+    io,
+    net::{IpAddr, SocketAddr, UdpSocket},
+    sync::{Arc, Mutex},
 };
+
+use cpal::{SampleRate, StreamConfig, default_host};
 use opus2::{Application, Channels, Encoder};
-use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::sync::{Arc, Mutex};
-use std::{cell::RefCell, io};
 
 use crate::shared::{
-    get_broadcast_addr, get_interfaces, BROADCAST_PORT, ENCODED_PACKET_SIZE, FIXED_SAMPLE_RATE,
-    MAGIC_HEADER, OPUS_FRAME_SIZE, OPUS_MAX_PACKET_SIZE,
+    BROADCAST_PORT, DefaultDeviceStream, DeviceType, ENCODED_PACKET_SIZE, FIXED_SAMPLE_RATE,
+    MAGIC_HEADER, OPUS_FRAME_SIZE, OPUS_MAX_PACKET_SIZE, get_broadcast_addr, get_interfaces,
 };
 
-pub fn run() -> io::Result<()> {
+pub fn run(r#type: DeviceType) -> io::Result<()> {
     let interfaces = get_interfaces();
 
     if interfaces.is_empty() {
@@ -54,38 +54,22 @@ pub fn run() -> io::Result<()> {
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     let encoder = Arc::new(Mutex::new(encoder));
-
-    let host = default_host();
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No input device available"))?;
-
-    println!(
-        "Using input device: {}",
-        device.name().unwrap_or_else(|_| "Unknown".to_string())
+    let encoder_clone = encoder.clone();
+    let _stream = DefaultDeviceStream::input(
+        default_host(),
+        r#type,
+        StreamConfig {
+            channels: 2,
+            sample_rate: SampleRate(FIXED_SAMPLE_RATE),
+            buffer_size: cpal::BufferSize::Fixed(0),
+        },
+        move |data| {
+            if let Ok(mut encoder) = encoder_clone.lock() {
+                send_encoded_audio_data(&sockets, &mut encoder, data);
+            }
+        },
     );
 
-    let encoder_clone = encoder.clone();
-    let stream = device
-        .build_input_stream(
-            &StreamConfig {
-                channels: 2,
-                sample_rate: SampleRate(FIXED_SAMPLE_RATE),
-                buffer_size: cpal::BufferSize::Fixed(0),
-            },
-            move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                if let Ok(mut enc) = encoder_clone.lock() {
-                    send_encoded_audio_data(&sockets, &mut enc, data);
-                }
-            },
-            |err| eprintln!("Audio stream error: {}", err),
-            None,
-        )
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-    stream
-        .play()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     println!("Streaming audio (press Ctrl+C to stop)");
 
     loop {

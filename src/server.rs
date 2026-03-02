@@ -1,19 +1,14 @@
 use std::{
     cell::RefCell,
-    io, mem,
+    io,
     net::{Ipv4Addr, UdpSocket},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
-    time::Duration,
 };
 
-use cpal::{
-    SampleRate, StreamConfig, default_host,
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-};
+use cpal::{SampleRate, StreamConfig, default_host};
 use dashmap::DashMap;
 use opus2::{Channels, Decoder};
 use ringbuf::{
@@ -22,8 +17,8 @@ use ringbuf::{
 };
 
 use crate::shared::{
-    BROADCAST_PORT, CLIENT_BUFFER_SIZE, ENCODED_PACKET_SIZE, FIXED_SAMPLE_RATE, MAGIC_HEADER,
-    OPUS_FRAME_SIZE, WARMUP_THRESHOLD,
+    BROADCAST_PORT, CLIENT_BUFFER_SIZE, DefaultDeviceStream, ENCODED_PACKET_SIZE,
+    FIXED_SAMPLE_RATE, MAGIC_HEADER, OPUS_FRAME_SIZE, WARMUP_THRESHOLD,
 };
 
 type ClientProducer = <HeapRb<i16> as Split>::Prod;
@@ -45,81 +40,6 @@ pub fn add_saturating_i16(out: &mut [i16], v: &[i16]) {
     }
 }
 
-fn play_audio(clients: Clients) {
-    let host = default_host();
-    let device = host.default_output_device().unwrap();
-
-    println!(
-        "Using output device: {}",
-        device.name().unwrap_or_else(|_| "Unknown".to_string())
-    );
-
-    let clients_clone = clients.clone();
-
-    let stream = device
-        .build_output_stream(
-            &StreamConfig {
-                sample_rate: SampleRate(FIXED_SAMPLE_RATE),
-                buffer_size: cpal::BufferSize::Fixed(0),
-                channels: 2,
-            },
-            move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                data.fill(0);
-
-                let samples_needed = data.len();
-
-                for entry in clients_clone.iter() {
-                    let client = entry.value();
-
-                    if !client.warmup_complete.load(Ordering::Relaxed) {
-                        continue;
-                    }
-
-                    let mut consumer = client.consumer.lock().unwrap();
-                    let available = consumer.occupied_len();
-
-                    if available < samples_needed {
-                        client.warmup_complete.store(false, Ordering::Relaxed);
-                        eprintln!(
-                            "Client {} buffer underflow: {} < {} (warmup reset)",
-                            entry.key(),
-                            available,
-                            samples_needed
-                        );
-                        continue;
-                    }
-
-                    let (tail, head) = consumer.as_slices();
-                    let tail_len = tail.len();
-
-                    if tail.len() >= samples_needed {
-                        add_saturating_i16(data, &tail[..samples_needed]);
-                    } else {
-                        add_saturating_i16(&mut data[..tail_len], tail);
-                        add_saturating_i16(
-                            &mut data[tail.len()..],
-                            &head[..samples_needed - tail.len()],
-                        );
-                    }
-
-                    consumer.skip(samples_needed);
-                }
-            },
-            move |err| {
-                eprintln!("Audio stream error: {}", err);
-                thread::sleep(Duration::from_secs(1));
-                play_audio(clients.clone());
-            },
-            None,
-        )
-        .unwrap();
-
-    stream.play().unwrap();
-    mem::forget(stream);
-
-    println!("Playing audio (press Ctrl+C to stop)");
-}
-
 thread_local! {
     static DECODE_BUFFER: RefCell<Vec<i16>> = RefCell::new(vec![0i16; OPUS_FRAME_SIZE * 2]);
 }
@@ -133,7 +53,57 @@ pub fn run() -> io::Result<()> {
 
     let clients: Clients = Arc::new(DashMap::new());
 
-    play_audio(clients.clone());
+    let clients_clone = clients.clone();
+    let _stream = DefaultDeviceStream::output(
+        default_host(),
+        StreamConfig {
+            sample_rate: SampleRate(FIXED_SAMPLE_RATE),
+            buffer_size: cpal::BufferSize::Fixed(0),
+            channels: 2,
+        },
+        move |data| {
+            data.fill(0);
+
+            let samples_needed = data.len();
+
+            for entry in clients_clone.iter() {
+                let client = entry.value();
+
+                if !client.warmup_complete.load(Ordering::Relaxed) {
+                    continue;
+                }
+
+                let mut consumer = client.consumer.lock().unwrap();
+                let available = consumer.occupied_len();
+
+                if available < samples_needed {
+                    client.warmup_complete.store(false, Ordering::Relaxed);
+                    eprintln!(
+                        "Client {} buffer underflow: {} < {} (warmup reset)",
+                        entry.key(),
+                        available,
+                        samples_needed
+                    );
+                    continue;
+                }
+
+                let (tail, head) = consumer.as_slices();
+                let tail_len = tail.len();
+
+                if tail.len() >= samples_needed {
+                    add_saturating_i16(data, &tail[..samples_needed]);
+                } else {
+                    add_saturating_i16(&mut data[..tail_len], tail);
+                    add_saturating_i16(
+                        &mut data[tail.len()..],
+                        &head[..samples_needed - tail.len()],
+                    );
+                }
+
+                consumer.skip(samples_needed);
+            }
+        },
+    );
 
     let mut buf = [0u8; ENCODED_PACKET_SIZE];
 
