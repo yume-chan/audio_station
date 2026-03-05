@@ -11,3 +11,4 @@ if-addrs = "0.13"
 ringbuf = "0.4"
 opus2 = { version = "0.3.3" }
 dashmap = "5.5"
+multiversion = "0.8.0"

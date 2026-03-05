@@ -1,5 +1,3 @@
-#![feature(portable_simd)]
-
 use clap::{Parser, Subcommand};
 use std::io;
 

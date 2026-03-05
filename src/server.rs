@@ -10,6 +10,7 @@ use std::{
 
 use cpal::{SampleRate, StreamConfig, default_host};
 use dashmap::DashMap;
+use multiversion::multiversion;
 use opus2::{Channels, Decoder};
 use ringbuf::{
     HeapRb,
@@ -33,6 +34,7 @@ struct ClientState {
 
 type Clients = Arc<DashMap<Ipv4Addr, ClientState>>;
 
+#[multiversion(targets("x86_64+avx512bw", "x86_64+avx2", "x86_64+sse2"))]
 #[inline]
 pub fn add_saturating_i16(out: &mut [i16], v: &[i16]) {
     for (out, v) in out.iter_mut().zip(v) {
@@ -61,7 +63,7 @@ pub fn run() -> io::Result<()> {
             buffer_size: cpal::BufferSize::Fixed(0),
             channels: 2,
         },
-        move |data| {
+        #[inline(never)] move |data| {
             data.fill(0);
 
             let samples_needed = data.len();
