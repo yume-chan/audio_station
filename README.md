@@ -128,4 +128,4 @@ cargo fmt                           # Format code
 
 ## License
 
-MIT
+GPL-2.0
