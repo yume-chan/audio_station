@@ -3,23 +3,23 @@ use std::{
     io,
     net::{Ipv4Addr, UdpSocket},
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
 };
 
-use cpal::{SampleRate, StreamConfig, default_host};
+use cpal::{default_host, SampleRate, StreamConfig};
 use dashmap::DashMap;
 use multiversion::multiversion;
 use opus2::{Channels, Decoder};
 use ringbuf::{
-    HeapRb,
     traits::{Consumer, Observer, Producer, Split},
+    HeapRb,
 };
 
 use crate::shared::{
-    BROADCAST_PORT, CLIENT_BUFFER_SIZE, DefaultDeviceStream, ENCODED_PACKET_SIZE,
-    FIXED_SAMPLE_RATE, MAGIC_HEADER, OPUS_FRAME_SIZE, WARMUP_THRESHOLD,
+    DefaultDeviceStream, CLIENT_BUFFER_SIZE, ENCODED_PACKET_SIZE, FIXED_SAMPLE_RATE, MAGIC_HEADER,
+    OPUS_FRAME_SIZE, WARMUP_THRESHOLD,
 };
 
 type ClientProducer = <HeapRb<i16> as Split>::Prod;
@@ -46,11 +46,11 @@ thread_local! {
     static DECODE_BUFFER: RefCell<Vec<i16>> = RefCell::new(vec![0i16; OPUS_FRAME_SIZE * 2]);
 }
 
-pub fn run() -> io::Result<()> {
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, BROADCAST_PORT))?;
+pub fn run(port: u16) -> io::Result<()> {
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, port))?;
     socket.set_broadcast(true)?;
 
-    println!("Listening for broadcasts on port {}...", BROADCAST_PORT);
+    println!("Listening for broadcasts on port {}...", port);
     println!("Local address: {:?}", socket.local_addr());
 
     let clients: Clients = Arc::new(DashMap::new());
@@ -63,7 +63,7 @@ pub fn run() -> io::Result<()> {
             buffer_size: cpal::BufferSize::Fixed(0),
             channels: 2,
         },
-        #[inline(never)] move |data| {
+        move |data| {
             data.fill(0);
 
             let samples_needed = data.len();

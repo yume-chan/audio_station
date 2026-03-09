@@ -5,15 +5,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use cpal::{SampleRate, StreamConfig, default_host};
+use cpal::{default_host, SampleRate, StreamConfig};
 use opus2::{Application, Channels, Encoder};
 
 use crate::shared::{
-    BROADCAST_PORT, DefaultDeviceStream, DeviceType, ENCODED_PACKET_SIZE, FIXED_SAMPLE_RATE,
-    MAGIC_HEADER, OPUS_FRAME_SIZE, OPUS_MAX_PACKET_SIZE, get_broadcast_addr, get_interfaces,
+    get_broadcast_addr, get_interfaces, DefaultDeviceStream, DeviceType, ENCODED_PACKET_SIZE,
+    FIXED_SAMPLE_RATE, MAGIC_HEADER, OPUS_FRAME_SIZE, OPUS_MAX_PACKET_SIZE,
 };
 
-pub fn run(r#type: DeviceType) -> io::Result<()> {
+pub fn run(r#type: DeviceType, port: u16) -> io::Result<()> {
     let interfaces = get_interfaces();
 
     if interfaces.is_empty() {
@@ -28,7 +28,7 @@ pub fn run(r#type: DeviceType) -> io::Result<()> {
         let socket = UdpSocket::bind((addr.ip, 0))?;
         socket.set_broadcast(true)?;
         let broadcast_ip = get_broadcast_addr(addr.clone());
-        let broadcast_addr = SocketAddr::new(IpAddr::V4(broadcast_ip), BROADCAST_PORT);
+        let broadcast_addr = SocketAddr::new(IpAddr::V4(broadcast_ip), port);
         sockets.push((socket, broadcast_addr));
         println!(
             "  Interface {}: {} -> broadcast {}",

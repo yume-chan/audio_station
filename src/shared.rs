@@ -1,19 +1,19 @@
 use std::{
     net::Ipv4Addr,
     sync::{
+        mpsc::{channel, Sender},
         Arc, Mutex,
-        mpsc::{Sender, channel},
     },
     thread,
     time::Duration,
 };
 
 use clap::ValueEnum;
+use cpal::{traits::DeviceTrait, StreamConfig};
 use cpal::{
-    Host,
     traits::{HostTrait, StreamTrait},
+    Host,
 };
-use cpal::{StreamConfig, traits::DeviceTrait};
 use if_addrs::{IfAddr, Ifv4Addr, Interface};
 
 pub const BROADCAST_PORT: u16 = 5000;
@@ -52,42 +52,40 @@ impl DefaultDeviceStream {
         let sender = Arc::new(sender);
         let sender_clone = sender.clone();
 
-        thread::spawn(move || {
-            loop {
-                let device = match r#type {
-                    DeviceType::Input => host.default_input_device(),
-                    DeviceType::Output => host.default_output_device(),
-                }
+        thread::spawn(move || loop {
+            let device = match r#type {
+                DeviceType::Input => host.default_input_device(),
+                DeviceType::Output => host.default_output_device(),
+            }
+            .unwrap();
+
+            println!(
+                "Using input device: {}",
+                device.name().unwrap_or_else(|_| "Unknown".to_string())
+            );
+
+            let callback_clone = callback_clone.clone();
+            let sender_clone = sender_clone.clone();
+
+            let stream = device
+                .build_input_stream(
+                    &config,
+                    move |data: &[i16], _| {
+                        callback_clone.lock().unwrap()(data);
+                    },
+                    move |err| {
+                        eprintln!("Audio stream error: {}", err);
+                        thread::sleep(Duration::from_secs(1));
+                        sender_clone.send(StreamSignal::Retry).unwrap();
+                    },
+                    None,
+                )
                 .unwrap();
 
-                println!(
-                    "Using input device: {}",
-                    device.name().unwrap_or_else(|_| "Unknown".to_string())
-                );
+            stream.play().unwrap();
 
-                let callback_clone = callback_clone.clone();
-                let sender_clone = sender_clone.clone();
-
-                let stream = device
-                    .build_input_stream(
-                        &config,
-                        move |data: &[i16], _| {
-                            callback_clone.lock().unwrap()(data);
-                        },
-                        move |err| {
-                            eprintln!("Audio stream error: {}", err);
-                            thread::sleep(Duration::from_secs(1));
-                            sender_clone.send(StreamSignal::Retry).unwrap();
-                        },
-                        None,
-                    )
-                    .unwrap();
-
-                stream.play().unwrap();
-
-                if let StreamSignal::Stop = receiver.recv().unwrap() {
-                    break;
-                }
+            if let StreamSignal::Stop = receiver.recv().unwrap() {
+                break;
             }
         });
 
@@ -105,38 +103,36 @@ impl DefaultDeviceStream {
         let sender = Arc::new(sender);
         let sender_clone = sender.clone();
 
-        thread::spawn(move || {
-            loop {
-                let device = host.default_output_device().unwrap();
+        thread::spawn(move || loop {
+            let device = host.default_output_device().unwrap();
 
-                println!(
-                    "Using output device: {}",
-                    device.name().unwrap_or_else(|_| "Unknown".to_string())
-                );
+            println!(
+                "Using output device: {}",
+                device.name().unwrap_or_else(|_| "Unknown".to_string())
+            );
 
-                let callback_clone = callback_clone.clone();
-                let sender_clone = sender_clone.clone();
+            let callback_clone = callback_clone.clone();
+            let sender_clone = sender_clone.clone();
 
-                let stream = device
-                    .build_output_stream(
-                        &config,
-                        move |data: &mut [i16], _| {
-                            callback_clone.lock().unwrap()(data);
-                        },
-                        move |err| {
-                            eprintln!("Audio stream error: {}", err);
-                            thread::sleep(Duration::from_secs(1));
-                            sender_clone.send(StreamSignal::Retry).unwrap();
-                        },
-                        None,
-                    )
-                    .unwrap();
+            let stream = device
+                .build_output_stream(
+                    &config,
+                    move |data: &mut [i16], _| {
+                        callback_clone.lock().unwrap()(data);
+                    },
+                    move |err| {
+                        eprintln!("Audio stream error: {}", err);
+                        thread::sleep(Duration::from_secs(1));
+                        sender_clone.send(StreamSignal::Retry).unwrap();
+                    },
+                    None,
+                )
+                .unwrap();
 
-                stream.play().unwrap();
+            stream.play().unwrap();
 
-                if let StreamSignal::Stop = receiver.recv().unwrap() {
-                    break;
-                }
+            if let StreamSignal::Stop = receiver.recv().unwrap() {
+                break;
             }
         });
 

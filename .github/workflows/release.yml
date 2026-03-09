@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: audio_station-linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: audio_station-linux-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: audio_station-windows-x86_64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: audio_station-windows-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux cross-compilation tools (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (aarch64 Linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << EOF
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Install Windows cross-compilation tools (aarch64)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        run: |
+          rustup target add aarch64-pc-windows-msvc
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifacts (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          cp target/${{ matrix.target }}/release/audio_station ${{ matrix.artifact_name }}
+
+      - name: Prepare artifacts (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          cp target/${{ matrix.target }}/release/audio_station.exe ${{ matrix.artifact_name }}.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release archives
+        run: |
+          cd artifacts
+          for dir in */; do
+            cd "$dir"
+            file=$(ls | head -1)
+            if [[ "$file" == *.exe ]]; then
+              zip "../${file%.exe}.zip" "$file"
+            else
+              tar -czf "../${file}.tar.gz" "$file"
+            fi
+            cd ..
+          done
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz

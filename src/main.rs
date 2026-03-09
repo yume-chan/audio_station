@@ -11,6 +11,8 @@ mod shared;
 #[command(name = "audio_station")]
 #[command(about = "Audio station with client and server modes")]
 struct Cli {
+    #[arg(long = "port", default_value_t = shared::BROADCAST_PORT)]
+    port: u16,
     #[command(subcommand)]
     command: Commands,
 }
@@ -28,7 +30,7 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Client { r#type } => client::run(r#type),
-        Commands::Server => server::run(),
+        Commands::Client { r#type, .. } => client::run(r#type, cli.port),
+        Commands::Server => server::run(cli.port),
     }
 }
