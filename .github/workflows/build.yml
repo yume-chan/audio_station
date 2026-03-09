@@ -19,7 +19,7 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: audio_station-linux-x86_64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             artifact_name: audio_station-linux-aarch64
           - os: windows-latest
@@ -42,32 +42,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - name: Install Linux cross-compilation tools (aarch64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo dpkg --add-architecture arm64
-          sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null << EOF
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main universe
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe
-          EOF
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libasound2-dev:arm64 pkg-config
-
-      - name: Configure cross-compilation (aarch64 Linux)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          mkdir -p .cargo
-          cat > .cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-
-      - name: Install Windows cross-compilation tools (aarch64)
-        if: matrix.target == 'aarch64-pc-windows-msvc'
-        run: |
-          rustup target add aarch64-pc-windows-msvc
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
