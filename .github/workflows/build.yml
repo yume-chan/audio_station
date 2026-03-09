@@ -47,7 +47,7 @@ jobs:
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libasound2-dev:arm64 pkg-config
 
       - name: Configure cross-compilation (aarch64 Linux)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -57,6 +57,7 @@ jobs:
           [target.aarch64-unknown-linux-gnu]
           linker = "aarch64-linux-gnu-gcc"
           EOF
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
 
       - name: Install Windows cross-compilation tools (aarch64)
         if: matrix.target == 'aarch64-pc-windows-msvc'
